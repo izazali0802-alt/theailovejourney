@@ -3,7 +3,10 @@ import { SITE_CONFIG } from './config/siteConfig.js';
 import { StarfieldCanvas } from './components/StarfieldCanvas.js';
 import { AmbientAudio } from './components/AmbientAudio.js';
 import { LoveModal } from './components/LoveModal.js';
-import { authService } from './services/authService.js';
+import { AccessScreen } from './components/AccessScreen.js';
+import { StoryViewer } from './components/StoryViewer.js';
+import { AdminDashboard } from './components/AdminDashboard.js';
+import { apiService } from './services/apiService.js';
 
 class App {
   constructor() {
@@ -12,17 +15,18 @@ class App {
     this.ambientAudio = new AmbientAudio();
     this.modal = null;
     this.currentWhisperIndex = 0;
+    this.currentView = 'landing'; // 'landing' | 'access' | 'story' | 'admin'
+    this.activeComponent = null;
 
     this.init();
   }
 
   init() {
-    // 1. Setup Canvas Background
+    // 1. Setup Canvas Background & Glow Orbs
     const canvas = document.createElement('canvas');
     canvas.id = 'bg-canvas';
     document.body.prepend(canvas);
 
-    // Glow Orbs
     const orb1 = document.createElement('div');
     orb1.className = 'ambient-glow ambient-glow-1';
     const orb2 = document.createElement('div');
@@ -32,19 +36,77 @@ class App {
 
     this.starfield = new StarfieldCanvas(canvas);
 
-    // 2. Render Main Application UI
-    this.renderUI();
-
-    // 3. Initialize Modal
+    // 2. Initialize Info Modal
     this.modal = new LoveModal(document.body);
 
-    // 4. Attach Interactions
-    this.attachEvents();
+    // 3. Listen to Hash Changes
+    window.addEventListener('hashchange', () => this.handleRouting());
+
+    // 4. Initial Routing
+    this.handleRouting();
   }
 
-  renderUI() {
-    this.appEl.innerHTML = `
-      <!-- Top Header Navigation -->
+  handleRouting() {
+    const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+
+    if (hash === 'story') {
+      if (apiService.isAuthenticated()) {
+        this.navigateTo('story', false);
+      } else {
+        this.navigateTo('access', true);
+      }
+    } else if (hash === 'access') {
+      this.navigateTo('access', false);
+    } else if (hash === 'admin') {
+      this.navigateTo('admin', false);
+    } else {
+      this.navigateTo('landing', false);
+    }
+  }
+
+  navigateTo(view, updateHash = true) {
+    this.currentView = view;
+    if (updateHash) {
+      const targetHash = view === 'landing' ? '' : `#/${view}`;
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+        return; // handleRouting will trigger
+      }
+    }
+
+    // Clean up previous view component
+    if (this.activeComponent && typeof this.activeComponent.destroy === 'function') {
+      this.activeComponent.destroy();
+      this.activeComponent = null;
+    }
+
+    this.appEl.innerHTML = '';
+
+    switch (view) {
+      case 'landing':
+        this.renderLandingView();
+        break;
+      case 'access':
+        this.renderAccessView();
+        break;
+      case 'story':
+        this.renderStoryView();
+        break;
+      case 'admin':
+        this.renderAdminView();
+        break;
+      default:
+        this.renderLandingView();
+    }
+  }
+
+  // --- 1. Landing View ---
+  renderLandingView() {
+    const landingContainer = document.createElement('div');
+    landingContainer.className = 'landing-view-wrapper';
+
+    landingContainer.innerHTML = `
+      <!-- Top Navigation Header -->
       <header class="header-bar">
         <div class="brand-logo" id="brand-home">
           <span class="brand-spark"></span>
@@ -72,7 +134,7 @@ class App {
         </div>
       </header>
 
-      <!-- Center Hero Message (Primary Focus) -->
+      <!-- Center Hero Section -->
       <main class="hero-container" id="hero-click-area">
         <div class="heart-wrapper">
           <div class="heart-pulse-ring"></div>
@@ -95,6 +157,12 @@ class App {
           ${SITE_CONFIG.subtitle}
         </p>
 
+        <div class="landing-cta-container">
+          <button class="submit-btn landing-enter-btn" id="landing-enter-code-btn">
+            <span>Enter Your Code ❤️</span>
+          </button>
+        </div>
+
         <div class="whisper-box" id="whisper-box">
           <span class="whisper-text" id="whisper-text">
             "${SITE_CONFIG.whispers[0]}"
@@ -102,79 +170,127 @@ class App {
         </div>
 
         <div class="touch-hint">
-          Touch screen to send love
+          Touch anywhere to send love
         </div>
       </main>
 
-      <!-- Footer Section -->
+      <!-- Footer Bar -->
       <footer class="footer-bar">
         <div>
           &copy; ${new Date().getFullYear()} ${SITE_CONFIG.title}
         </div>
         <div>
-          <button class="future-auth-btn" id="future-auth-btn">
-            ${authService.isAuthenticated() ? 'My Area' : 'Member Portal (V2)'}
+          <button class="future-auth-btn" id="admin-portal-link-btn">
+            🔒 Admin Portal
           </button>
         </div>
       </footer>
     `;
+
+    this.appEl.appendChild(landingContainer);
+    this.attachLandingEvents(landingContainer);
   }
 
-  attachEvents() {
+  attachLandingEvents(container) {
     // 1. Audio toggle
-    const audioBtn = document.getElementById('audio-toggle-btn');
-    const iconMuted = document.getElementById('audio-icon-muted');
-    const iconPlaying = document.getElementById('audio-icon-playing');
+    const audioBtn = container.querySelector('#audio-toggle-btn');
+    const iconMuted = container.querySelector('#audio-icon-muted');
+    const iconPlaying = container.querySelector('#audio-icon-playing');
 
-    audioBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isPlaying = this.ambientAudio.toggle();
-      if (isPlaying) {
-        audioBtn.classList.add('active');
-        iconMuted.style.display = 'none';
-        iconPlaying.style.display = 'block';
-      } else {
-        audioBtn.classList.remove('active');
-        iconMuted.style.display = 'block';
-        iconPlaying.style.display = 'none';
-      }
-    });
+    if (audioBtn) {
+      audioBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isPlaying = this.ambientAudio.toggle();
+        if (isPlaying) {
+          audioBtn.classList.add('active');
+          iconMuted.style.display = 'none';
+          iconPlaying.style.display = 'block';
+        } else {
+          audioBtn.classList.remove('active');
+          iconMuted.style.display = 'block';
+          iconPlaying.style.display = 'none';
+        }
+      });
+    }
 
-    // 2. Info modal trigger
-    const infoBtn = document.getElementById('info-btn');
-    infoBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.modal.open();
-    });
+    // 2. Info modal
+    const infoBtn = container.querySelector('#info-btn');
+    if (infoBtn) {
+      infoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.modal.open();
+      });
+    }
 
-    // 3. Member portal (Future V2 preview button)
-    const futureAuthBtn = document.getElementById('future-auth-btn');
-    futureAuthBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.modal.open();
-    });
+    // 3. Enter Code button
+    const enterBtn = container.querySelector('#landing-enter-code-btn');
+    if (enterBtn) {
+      enterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (apiService.isAuthenticated()) {
+          this.navigateTo('story');
+        } else {
+          this.navigateTo('access');
+        }
+      });
+    }
 
-    // 4. Hero click / tap interaction
-    const heroArea = document.getElementById('hero-click-area');
-    heroArea.addEventListener('click', (e) => {
-      this.handleLoveInteraction(e.clientX, e.clientY);
-    });
+    // 4. Admin Portal link
+    const adminLink = container.querySelector('#admin-portal-link-btn');
+    if (adminLink) {
+      adminLink.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.navigateTo('admin');
+      });
+    }
 
-    // Tap anywhere on document (excluding buttons)
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('button') && !e.target.closest('.modal-card')) {
-        this.handleLoveInteraction(e.clientX, e.clientY);
-      }
-    });
+    // 5. Hero tap interaction & particle burst
+    const heroArea = container.querySelector('#hero-click-area');
+    if (heroArea) {
+      heroArea.addEventListener('click', (e) => {
+        if (!e.target.closest('button')) {
+          this.handleLoveInteraction(e.clientX, e.clientY);
+        }
+      });
+    }
+  }
+
+  // --- 2. Access View ---
+  renderAccessView() {
+    this.activeComponent = new AccessScreen(
+      this.appEl,
+      () => this.navigateTo('story'),
+      () => this.navigateTo('admin'),
+      () => this.navigateTo('landing')
+    );
+  }
+
+  // --- 3. Story View ---
+  renderStoryView() {
+    this.activeComponent = new StoryViewer(
+      this.appEl,
+      () => this.navigateTo('access'),
+      () => this.navigateTo('landing')
+    );
+  }
+
+  // --- 4. Admin View ---
+  renderAdminView() {
+    this.activeComponent = new AdminDashboard(
+      this.appEl,
+      () => this.navigateTo('landing'),
+      () => this.navigateTo('story')
+    );
   }
 
   handleLoveInteraction(x, y) {
-    // Trigger particle burst at touch/click location
     const posX = x || window.innerWidth / 2;
     const posY = y || window.innerHeight / 2;
-    this.starfield.triggerBurst(posX, posY);
+    if (this.starfield) {
+      this.starfield.triggerBurst(posX, posY);
+    }
 
-    // Rotate whisper thought
+    // Cycle whisper text
     this.currentWhisperIndex = (this.currentWhisperIndex + 1) % SITE_CONFIG.whispers.length;
     const whisperEl = document.getElementById('whisper-text');
     if (whisperEl) {
@@ -187,7 +303,7 @@ class App {
   }
 }
 
-// Instantiate application when DOM is ready
+// Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   new App();
 });

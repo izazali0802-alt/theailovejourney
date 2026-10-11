@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test_worker.js",
+    "d1:local": "wrangler d1 execute theailovejourney_db --local --file=./schema.sql",
+    "deploy": "vite build && wrangler deploy"
   },
   "devDependencies": {
     "vite": "^6.0.0"

@@ -1,0 +1,19 @@
+name = "theailovejourney"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+# Modern Cloudflare Workers with Static Assets
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# Cloudflare D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "theailovejourney_db"
+database_id = "d1-theailovejourney-id"
+
+# Cloudflare R2 Media Storage Binding
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "theailovejourney-photos"
